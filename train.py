@@ -1,6 +1,7 @@
 """Time-ordered training and evaluation for the FZ–CNN–WBiLSTM–AM model."""
 from __future__ import annotations
 import argparse
+import hashlib
 import json
 import random
 import sys
@@ -16,6 +17,7 @@ sys.path.insert(0, str(ROOT / 'src'))
 from fz_cnn_wbilstm.data import make_windows, demo_pvgis
 from fz_cnn_wbilstm.metrics import regression_metrics
 from fz_cnn_wbilstm.model import FuzzyCNNWaveletBiLSTMAttention
+from training_recovery import EpochCheckpoint
 
 
 def seed_all(seed: int):
@@ -34,6 +36,8 @@ def main():
     ap.add_argument('--features', default='GI,SE,AT,H,WV', help='Comma-separated historical features')
     ap.add_argument('--config', type=Path, default=ROOT / 'configs' / 'paper.json')
     ap.add_argument('--epochs', type=int)
+    ap.add_argument('--checkpoint-dir', type=Path, help='Persistent recovery directory')
+    ap.add_argument('--resume', action='store_true')
     ap.add_argument('--out', type=Path, default=ROOT / 'outputs' / 'latest')
     args = ap.parse_args()
     if args.smoke == bool(args.csv):
@@ -72,10 +76,22 @@ def main():
     criterion = torch.nn.L1Loss()  # MAE matches Table I.
     batches = DataLoader(TensorDataset(dataset.x_train, dataset.y_train),
                          batch_size=cfg['batch_size'], shuffle=True)
+    source_sha=(hashlib.sha256(args.csv.read_bytes()).hexdigest()
+                if args.csv else f"synthetic_seed_{cfg['seed']}")
+    recovery=EpochCheckpoint(args.checkpoint_dir or args.out / 'recovery',{
+        "cfg":cfg,"data_sha256":source_sha,"target":args.target,
+        "features":args.features,"time_col":args.time_col,"smoke":args.smoke})
+    components={"model":net,"optimizer":opt}
     best_loss = float('inf')
     best_state = None
     history = []
-    for epoch in range(cfg['epochs']):
+    start_epoch = 0
+    if args.resume:
+        prev=recovery.restore(components,device='cpu')
+        start_epoch=prev["epoch"];best_loss=prev["best_loss"]
+        best_state=prev["best_state"];history=prev["history"]
+        print(f"Resumed after epoch {start_epoch}")
+    for epoch in range(start_epoch,cfg['epochs']):
         net.train()
         accum = 0.0
         count = 0
@@ -96,7 +112,9 @@ def main():
         if val_loss < best_loss:
             best_loss = val_loss
             best_state = {k: v.detach().cpu().clone() for k, v in net.state_dict().items()}
+        recovery.save(epoch+1,components,{"best_loss":best_loss,"best_state":best_state,"history":history})
         print(f"epoch {epoch + 1}/{cfg['epochs']}: train_mae={accum/count:.5f}, val_mae={val_loss:.5f}")
+    if best_state is None: raise RuntimeError("No validation checkpoint")
     net.load_state_dict(best_state)
     net.eval()
     with torch.no_grad():
