@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: 'Please cite the associated IEEE AIIT conference paper.'
+title: 'An Advanced Forecasting Model for Global Irradiance in Solar Electric Vehicles Using a Fuzzy C-Means-CNN-Wavelet BiLSTM Network with an Attention Mechanism'
+type: conference-paper
+authors:
+  - family-names: Mchara
+    given-names: Walid
+  - family-names: Manai
+    given-names: Lazhar
+  - family-names: Khalfa
+    given-names: Mohamed Abdellatif
+  - family-names: Koubaa
+    given-names: Anis
+  - family-names: Raissi
+    given-names: Monia
+doi: 10.1109/AIIT63112.2025.11082921
+year: 2025
